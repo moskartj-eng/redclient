@@ -1,0 +1,8 @@
+{
+  "menu_music": {
+    "category": "music",
+    "sounds": [
+      { "name": "redclient:menu_music", "stream": false }
+    ]
+  }
+}

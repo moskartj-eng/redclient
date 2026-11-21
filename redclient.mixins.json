@@ -1,0 +1,12 @@
+{
+  "required": true,
+  "package": "de.redclient.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": [
+    "ItemEntityRenderStateMixin",
+    "ItemEntityRendererMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
