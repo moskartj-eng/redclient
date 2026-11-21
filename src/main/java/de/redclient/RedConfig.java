@@ -14,6 +14,8 @@ public class RedConfig {
     public static RedConfig INSTANCE = new RedConfig();
 
     public boolean customCrosshair = true;
+    public boolean musicEnabled = true;
+    public float musicVolume = 0.5f;
     public CrosshairProfile normal = CrosshairProfile.plus(0xFFFFFF);
     public CrosshairProfile friendly = CrosshairProfile.plus(0x55FF55);
     public CrosshairProfile enemy = CrosshairProfile.plus(0xFF3333);

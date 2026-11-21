@@ -20,11 +20,16 @@ import java.util.function.Supplier;
 public class CrosshairScreen extends RedScreen {
     private static final int LEFT_X = 14;
     private static final int LEFT_W = 165;
+    private static final int PREVIEW_BG = 0xFF3D4147; // eine einzige, neutrale Farbe
 
     private TargetType tab = TargetType.NORMAL;
     private final List<Row> rows = new ArrayList<>();
-    private double scroll;
-    private Slider activeSlider;
+    private final SmoothScroll scroll = new SmoothScroll();
+    private Row activeSlider;
+    private boolean draggingPreview;
+    private double dragStartMx, dragStartMy;
+    private float dragStartX, dragStartY;
+    private int prevX, prevY, prevW, prevH;
     private volatile String status = "";
 
     private int cell, gridY, listX, listW, listTop, listBottom;
@@ -60,17 +65,32 @@ public class CrosshairScreen extends RedScreen {
         rows.add(new Header("Farbe & Blending"));
         addChannels(() -> p.color, v -> p.color = v);
         rows.add(new Presets(v -> p.color = v));
-        rows.add(new Toggle("Vanilla-Blending", () -> p.vanillaBlending, v -> p.vanillaBlending = v));
+        rows.add(new Toggle("Vanilla-Blending (nur ohne Outline)", () -> p.vanillaBlending, v -> p.vanillaBlending = v));
 
         rows.add(new Header("Dicke"));
         rows.add(new Toggle("Dicke ändern (aus = Vanilla-Breite)", () -> p.thicknessEnabled, v -> p.thicknessEnabled = v));
-        rows.add(new Slider("Dicke", 1, 8, () -> p.thickness, v -> p.thickness = v));
+        rows.add(new FSlider("Dicke", CrosshairProfile.MIN_THICKNESS, CrosshairProfile.MAX_THICKNESS, 0.05f, 2.2,
+                () -> p.thickness, v -> p.thickness = v));
 
         rows.add(new Header("Outline"));
         rows.add(new Toggle("Outline", () -> p.outlineEnabled, v -> p.outlineEnabled = v));
-        rows.add(new Slider("Outline-Dicke", 1, 4, () -> p.outlineThickness, v -> p.outlineThickness = v));
+        rows.add(new FSlider("Outline-Dicke", CrosshairProfile.MIN_OUTLINE, CrosshairProfile.MAX_OUTLINE, 0.05f, 2.2,
+                () -> p.outlineThickness, v -> p.outlineThickness = v));
         addChannels(() -> p.outlineColor, v -> p.outlineColor = v);
         rows.add(new Presets(v -> p.outlineColor = v));
+
+        rows.add(new Header("Position (wie Valorant)"));
+        rows.add(new FSlider("Crosshair X", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
+                () -> p.offsetX, v -> p.offsetX = v));
+        rows.add(new FSlider("Crosshair Y", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
+                () -> p.offsetY, v -> p.offsetY = v));
+        rows.add(new FSlider("Bild X", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
+                () -> p.imageOffsetX, v -> p.imageOffsetX = v));
+        rows.add(new FSlider("Bild Y", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
+                () -> p.imageOffsetY, v -> p.imageOffsetY = v));
+        rows.add(new Button("Position zurücksetzen", () -> {
+            p.offsetX = p.offsetY = p.imageOffsetX = p.imageOffsetY = 0f;
+        }));
 
         rows.add(new Header("Eigenes Bild"));
         rows.add(new Toggle("Bild als Crosshair verwenden", () -> p.imageEnabled, v -> p.imageEnabled = v));
@@ -186,37 +206,46 @@ public class CrosshairScreen extends RedScreen {
         }
         ctx.drawTextWithShadow(textRenderer, Text.literal("Links malen · Rechts löschen"), LEFT_X, gridY + gridPx + 4, 0xFF888888);
 
-        // Vorschau (zwei Hintergruende, damit man das Blending sieht)
+        // Vorschau: eine einzige Hintergrundfarbe, Crosshair/Bild per Maus verschiebbar
         int py = gridY + gridPx + 16;
         int ph = height - py - 10;
+        prevX = LEFT_X;
+        prevY = py;
+        prevW = LEFT_W;
+        prevH = Math.max(0, ph);
         if (ph >= 20) {
-            ctx.fill(LEFT_X, py, LEFT_X + LEFT_W / 2, py + ph, 0xFFB8B8B8);
-            ctx.fill(LEFT_X + LEFT_W / 2, py, LEFT_X + LEFT_W, py + ph, 0xFF2A2A2A);
+            ctx.fill(LEFT_X, py, LEFT_X + LEFT_W, py + ph, PREVIEW_BG);
             border(ctx, LEFT_X - 1, py - 1, LEFT_X + LEFT_W + 1, py + ph + 1, RED_DARK);
             ctx.enableScissor(LEFT_X, py, LEFT_X + LEFT_W, py + ph);
             CrosshairRenderer.drawIn(ctx, tab, p, LEFT_X, py, LEFT_W, ph);
             ctx.disableScissor();
-            ctx.drawTextWithShadow(textRenderer, Text.literal("Vorschau"), LEFT_X + 3, py + 3, 0xFF666666);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("Vorschau · ziehen = verschieben"), LEFT_X + 3, py + 3, 0xFF8A8F95);
         }
 
-        // Optionsliste
-        scroll = Math.max(0, Math.min(scroll, maxScroll()));
+        // Optionsliste (weiches Scrollen: Inhalt wird um die gleitende Position verschoben)
+        double max = maxScroll();
+        scroll.update(max);
+        double sc = scroll.get();
         ctx.enableScissor(listX, listTop, listX + listW, listBottom);
-        int y = listTop - (int) scroll;
+        var m = ctx.getMatrices();
+        m.pushMatrix();
+        m.translate(0f, (float) -sc);
+        int y = listTop;
         for (Row r : rows) {
-            if (y + r.h > listTop && y < listBottom) {
-                boolean hov = mouseY >= listTop && mouseY < listBottom && inside(mouseX, mouseY, listX, y, listW, r.h - 2);
+            if (y + r.h > listTop + sc && y < listBottom + sc) {
+                boolean hov = mouseY >= listTop && mouseY < listBottom
+                        && inside(mouseX, mouseY + sc, listX, y, listW, r.h - 2);
                 r.draw(ctx, textRenderer, listX, y, listW, hov);
             }
             y += r.h;
         }
+        m.popMatrix();
         ctx.disableScissor();
 
-        double max = maxScroll();
         if (max > 0) {
             int trackH = listBottom - listTop;
             int barH = Math.max(16, (int) (trackH * (trackH / (trackH + max))));
-            int barY = listTop + (int) ((trackH - barH) * (scroll / max));
+            int barY = listTop + (int) ((trackH - barH) * (sc / max));
             ctx.fill(listX + listW + 5, listTop, listX + listW + 8, listBottom, 0xFF1A1A1A);
             ctx.fill(listX + listW + 5, barY, listX + listW + 8, barY + barH, RED);
         }
@@ -252,7 +281,7 @@ public class CrosshairScreen extends RedScreen {
             for (int i = 0; i < types.length; i++) {
                 if (inside(mx, my, LEFT_X + i * tw, 34, tw - 2, 18)) {
                     tab = types[i];
-                    scroll = 0;
+                    scroll.reset();
                     status = "";
                     buildRows();
                     return true;
@@ -262,12 +291,25 @@ public class CrosshairScreen extends RedScreen {
 
         if (paint(mx, my, b)) return true;
 
+        // Vorschau anfassen und verschieben
+        if (b == 0 && prevH >= 20 && inside(mx, my, prevX, prevY, prevW, prevH)) {
+            draggingPreview = true;
+            dragStartMx = mx;
+            dragStartMy = my;
+            boolean img = profile().imageEnabled && CrosshairTextures.hasImage(tab);
+            dragStartX = img ? profile().imageOffsetX : profile().offsetX;
+            dragStartY = img ? profile().imageOffsetY : profile().offsetY;
+            return true;
+        }
+        draggingPreview = false;
+
         if (my >= listTop && my < listBottom && mx >= listX && mx < listX + listW) {
-            int y = listTop - (int) scroll;
+            double cy = my + scroll.get();
+            int y = listTop;
             for (Row r : rows) {
-                if (my >= y && my < y + r.h - 2) {
-                    if (r.click(listX, y, listW, mx, my, b)) {
-                        if (r instanceof Slider s) activeSlider = s;
+                if (cy >= y && cy < y + r.h - 2) {
+                    if (r.click(listX, y, listW, mx, cy, b)) {
+                        if (r instanceof Slider || r instanceof FSlider) activeSlider = r;
                         return true;
                     }
                     break;
@@ -280,8 +322,27 @@ public class CrosshairScreen extends RedScreen {
 
     @Override
     public boolean mouseDragged(Click click, double offsetX, double offsetY) {
-        if (activeSlider != null) {
-            activeSlider.setFromMouse(click.x(), listX, listW);
+        if (activeSlider instanceof Slider sl) {
+            sl.setFromMouse(click.x(), listX, listW);
+            return true;
+        }
+        if (activeSlider instanceof FSlider fs) {
+            fs.setFromMouse(click.x(), listX, listW);
+            return true;
+        }
+        if (draggingPreview) {
+            CrosshairProfile p = profile();
+            float nx = snap(dragStartX + (float) (click.x() - dragStartMx));
+            float ny = snap(dragStartY + (float) (click.y() - dragStartMy));
+            nx = Math.max(-CrosshairProfile.MAX_OFFSET, Math.min(CrosshairProfile.MAX_OFFSET, nx));
+            ny = Math.max(-CrosshairProfile.MAX_OFFSET, Math.min(CrosshairProfile.MAX_OFFSET, ny));
+            if (p.imageEnabled && CrosshairTextures.hasImage(tab)) {
+                p.imageOffsetX = nx;
+                p.imageOffsetY = ny;
+            } else {
+                p.offsetX = nx;
+                p.offsetY = ny;
+            }
             return true;
         }
         return paint(click.x(), click.y(), click.button());
@@ -289,13 +350,18 @@ public class CrosshairScreen extends RedScreen {
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-        scroll = Math.max(0, Math.min(maxScroll(), scroll - verticalAmount * 22));
+        scroll.add(-verticalAmount * 36, maxScroll());
         return true;
+    }
+
+    private static float snap(float v) {
+        return Math.round(v * 4f) / 4f;
     }
 
     @Override
     public void removed() {
         RedConfig.save();
+        super.removed();
     }
 
     // ------------------------------------------------------------------ Zeilen-Typen
@@ -404,6 +470,66 @@ public class CrosshairScreen extends RedScreen {
             double r = (mx - trackX(x, w)) / trackW(w);
             r = Math.max(0, Math.min(1, r));
             set.accept(min + (int) Math.round(r * (max - min)));
+        }
+
+        @Override
+        boolean click(int x, int y, int w, double mx, double my, int button) {
+            if (button != 0) return false;
+            setFromMouse(mx, x, w);
+            return true;
+        }
+    }
+
+    /** Slider mit Kommazahlen. pow > 1 macht den Bereich nahe dem Minimum feiner (fuer "richtig duenn"). */
+    private static final class FSlider extends Row {
+        final String label;
+        final float min, max, step;
+        final double pow;
+        final Supplier<Float> get;
+        final Consumer<Float> set;
+
+        FSlider(String label, float min, float max, float step, double pow, Supplier<Float> get, Consumer<Float> set) {
+            super(22);
+            this.label = label;
+            this.min = min;
+            this.max = max;
+            this.step = step;
+            this.pow = pow;
+            this.get = get;
+            this.set = set;
+        }
+
+        int trackX(int x, int w) {
+            return x + w / 2;
+        }
+
+        int trackW(int w) {
+            return w / 2 - 10;
+        }
+
+        double ratio(float v) {
+            double r = (v - min) / (double) (max - min);
+            return Math.pow(Math.max(0, Math.min(1, r)), 1.0 / pow);
+        }
+
+        @Override
+        void draw(DrawContext ctx, TextRenderer tr, int x, int y, int w, boolean hover) {
+            bg(ctx, x, y, w, h, hover);
+            float v = get.get();
+            ctx.drawTextWithShadow(tr, Text.literal(label + ": " + String.format(java.util.Locale.ROOT, "%.2f", v)),
+                    x + 8, y + 6, 0xFFFFFFFF);
+            int tx = trackX(x, w), tw = trackW(w);
+            int fx = tx + (int) (tw * ratio(v));
+            ctx.fill(tx, y + 8, tx + tw, y + 12, 0xFF3A3A3A);
+            ctx.fill(tx, y + 8, fx, y + 12, RED);
+            ctx.fill(fx - 2, y + 4, fx + 2, y + 16, 0xFFFFFFFF);
+        }
+
+        void setFromMouse(double mx, int x, int w) {
+            double r = Math.max(0, Math.min(1, (mx - trackX(x, w)) / trackW(w)));
+            double v = min + (max - min) * Math.pow(r, pow);
+            v = Math.round(v / step) * step;
+            set.accept((float) Math.max(min, Math.min(max, v)));
         }
 
         @Override
