@@ -2,168 +2,145 @@ package de.redclient;
 
 import net.minecraft.client.gui.Click;
 import net.minecraft.client.gui.DrawContext;
-import net.minecraft.client.gui.widget.ButtonWidget;
-import net.minecraft.client.gui.widget.SliderWidget;
 import net.minecraft.client.gui.screen.Screen;
+import net.minecraft.client.gui.widget.TextFieldWidget;
 import net.minecraft.text.Text;
 
-public class RedMenuScreen extends Screen {
-    private static final int CELL = 11;
-    private static final int GX = 20, GY = 50;
-    private static final int PX = GX + CrosshairProfile.SIZE * CELL + 20; // rechte Spalte
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+import java.util.function.Supplier;
 
-    private TargetType tab = TargetType.NORMAL;
+/** Hauptmenue (Rechts-Shift): Suchleiste + scrollbare Modul-Liste. */
+public class RedMenuScreen extends RedScreen {
+    private record Module(String name, String desc, Supplier<Screen> opener) {}
+
+    private static final List<Module> MODULES = List.of(
+            new Module("Crosshair", "Eigenes Crosshair: Pixel, Outline, Dicke, eigenes Bild",
+                    CrosshairScreen::new)
+    );
+
+    private static final int CARD_H = 44;
+    private static final int GAP = 6;
+
+    private static String lastQuery = "";
+
+    private TextFieldWidget search;
+    private double scroll;
+    private int panelX, panelW, listTop, listBottom;
 
     public RedMenuScreen() {
-        super(Text.literal("Red Client"));
-    }
-
-    private CrosshairProfile profile() {
-        return RedConfig.INSTANCE.profile(tab);
+        super(Text.literal("Menü"));
     }
 
     @Override
     protected void init() {
-        // Tabs
-        int tx = GX;
-        for (TargetType t : TargetType.values()) {
-            ButtonWidget b = ButtonWidget.builder(Text.literal(t.label), btn -> {
-                tab = t;
-                clearAndInit();
-            }).dimensions(tx, 20, 80, 20).build();
-            b.active = t != tab;
-            addDrawableChild(b);
-            tx += 84;
+        panelW = Math.min(380, width - 40);
+        panelX = (width - panelW) / 2;
+        listTop = 66;
+        listBottom = height - 24;
+
+        search = new TextFieldWidget(textRenderer, panelX, 38, panelW, 18, Text.literal("Suche"));
+        search.setPlaceholder(Text.literal("Suche..."));
+        search.setText(lastQuery);
+        search.setChangedListener(s -> {
+            lastQuery = s;
+            scroll = 0;
+        });
+        addDrawableChild(search);
+        setInitialFocus(search);
+    }
+
+    private List<Module> filtered() {
+        String q = lastQuery.trim().toLowerCase(Locale.ROOT);
+        List<Module> out = new ArrayList<>();
+        for (Module m : MODULES) {
+            if (q.isEmpty() || m.name().toLowerCase(Locale.ROOT).contains(q)
+                    || m.desc().toLowerCase(Locale.ROOT).contains(q)) {
+                out.add(m);
+            }
         }
+        return out;
+    }
 
-        // Crosshair an/aus
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("Eigenes Crosshair: " + (RedConfig.INSTANCE.customCrosshair ? "AN" : "AUS")),
-                btn -> {
-                    RedConfig.INSTANCE.customCrosshair = !RedConfig.INSTANCE.customCrosshair;
-                    clearAndInit();
-                }).dimensions(tx + 10, 20, 150, 20).build());
-
-        // RGB-Slider
-        addDrawableChild(new Channel(PX, 50, 150, "R", 16));
-        addDrawableChild(new Channel(PX, 72, 150, "G", 8));
-        addDrawableChild(new Channel(PX, 94, 150, "B", 0));
-
-        // Farb-Presets
-        String[] names = {"Weiß", "Rot", "Grün", "Blau"};
-        int[] cols = {0xFFFFFF, 0xFF0000, 0x00FF00, 0x3366FF};
-        for (int i = 0; i < 4; i++) {
-            int col = cols[i];
-            addDrawableChild(ButtonWidget.builder(Text.literal(names[i]), btn -> {
-                profile().color = col;
-                clearAndInit();
-            }).dimensions(PX + i * 38, 118, 36, 20).build());
-        }
-
-        // Blending
-        addDrawableChild(ButtonWidget.builder(
-                Text.literal("Vanilla-Blending: " + (profile().vanillaBlending ? "AN" : "AUS")),
-                btn -> {
-                    profile().vanillaBlending = !profile().vanillaBlending;
-                    clearAndInit();
-                }).dimensions(PX, 142, 150, 20).build());
-
-        // Leeren / Standard
-        addDrawableChild(ButtonWidget.builder(Text.literal("Alles leeren"), btn -> {
-            profile().pixels = new boolean[CrosshairProfile.SIZE * CrosshairProfile.SIZE];
-        }).dimensions(PX, 166, 150, 20).build());
-
-        addDrawableChild(ButtonWidget.builder(Text.literal("Standard-Kreuz"), btn -> {
-            CrosshairProfile fresh = CrosshairProfile.plus(profile().color);
-            fresh.vanillaBlending = profile().vanillaBlending;
-            RedConfig.INSTANCE.setProfile(tab, fresh);
-        }).dimensions(PX, 190, 150, 20).build());
-
-        addDrawableChild(ButtonWidget.builder(Text.literal("Fertig"), btn -> close())
-                .dimensions(PX, 214, 150, 20).build());
+    private double maxScroll(int count) {
+        int total = count * (CARD_H + GAP);
+        return Math.max(0, total - (listBottom - listTop));
     }
 
     @Override
     public void render(DrawContext ctx, int mouseX, int mouseY, float delta) {
         super.render(ctx, mouseX, mouseY, delta);
+        drawHeader(ctx, "Menü");
+        border(ctx, panelX - 1, 37, panelX + panelW + 1, 57, RED);
 
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Red Client – Crosshair: " + tab.label), GX, 6, 0xFFFF5555);
+        List<Module> list = filtered();
+        scroll = Math.max(0, Math.min(scroll, maxScroll(list.size())));
 
-        // Raster
-        CrosshairProfile p = profile();
-        int size = CrosshairProfile.SIZE;
-        ctx.fill(GX - 1, GY - 1, GX + size * CELL + 1, GY + size * CELL + 1, 0xFF000000);
-        for (int y = 0; y < size; y++) {
-            for (int x = 0; x < size; x++) {
-                int cx = GX + x * CELL, cy = GY + y * CELL;
-                int bg = ((x + y) % 2 == 0) ? 0xFF3A3A3A : 0xFF444444;
-                ctx.fill(cx, cy, cx + CELL - 1, cy + CELL - 1, bg);
-                if (p.get(x, y)) ctx.fill(cx, cy, cx + CELL - 1, cy + CELL - 1, 0xFF000000 | p.color);
-            }
+        ctx.enableScissor(panelX, listTop, panelX + panelW, listBottom);
+        for (int i = 0; i < list.size(); i++) {
+            Module m = list.get(i);
+            int y = listTop + i * (CARD_H + GAP) - (int) scroll;
+            boolean hover = inside(mouseX, mouseY, panelX, y, panelW, CARD_H)
+                    && mouseY >= listTop && mouseY < listBottom;
+            ctx.fill(panelX, y, panelX + panelW, y + CARD_H, hover ? PANEL_HOVER : PANEL);
+            ctx.fill(panelX, y, panelX + 4, y + CARD_H, hover ? RED_BRIGHT : RED);
+            if (hover) border(ctx, panelX, y, panelX + panelW, y + CARD_H, RED);
+
+            // Icon
+            ctx.fill(panelX + 14, y + 8, panelX + 42, y + 36, 0xFF0A0A0A);
+            border(ctx, panelX + 14, y + 8, panelX + 42, y + 36, RED_DARK);
+            String initial = m.name().substring(0, 1);
+            ctx.drawTextWithShadow(textRenderer, Text.literal(initial),
+                    panelX + 28 - textRenderer.getWidth(initial) / 2, y + 18, RED_BRIGHT);
+
+            ctx.drawTextWithShadow(textRenderer, Text.literal(m.name()), panelX + 52, y + 10, 0xFFFFFFFF);
+            ctx.drawTextWithShadow(textRenderer,
+                    Text.literal(textRenderer.trimToWidth(m.desc(), panelW - 90)), panelX + 52, y + 25, 0xFF999999);
+            ctx.drawTextWithShadow(textRenderer, Text.literal(">"), panelX + panelW - 16, y + 18, hover ? 0xFFFFFFFF : RED);
         }
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Links = malen, Rechts = löschen"),
-                GX, GY + size * CELL + 6, 0xFFAAAAAA);
+        ctx.disableScissor();
 
-        // 1:1-Vorschau
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Vorschau"), PX + 160, 50, 0xFFAAAAAA);
-        ctx.fill(PX + 160, 62, PX + 160 + 39, 62 + 39, 0xFF6B8E5A);
-        CrosshairRenderer.draw(ctx, p, PX + 160 + 12, 62 + 12);
-    }
+        if (list.isEmpty()) {
+            String s = "Keine Treffer";
+            ctx.drawTextWithShadow(textRenderer, Text.literal(s), width / 2 - textRenderer.getWidth(s) / 2, listTop + 20, 0xFF888888);
+        }
 
-    private boolean paint(double mx, double my, int button) {
-        int x = (int) Math.floor((mx - GX) / CELL);
-        int y = (int) Math.floor((my - GY) / CELL);
-        int size = CrosshairProfile.SIZE;
-        if (x < 0 || y < 0 || x >= size || y >= size) return false;
-        if (button == 0) profile().set(x, y, true);
-        else if (button == 1) profile().set(x, y, false);
-        else return false;
-        return true;
+        // Scrollbar
+        double max = maxScroll(list.size());
+        if (max > 0) {
+            int trackH = listBottom - listTop;
+            int barH = Math.max(16, (int) (trackH * (trackH / (trackH + max))));
+            int barY = listTop + (int) ((trackH - barH) * (scroll / max));
+            ctx.fill(panelX + panelW + 4, listTop, panelX + panelW + 7, listBottom, 0xFF1A1A1A);
+            ctx.fill(panelX + panelW + 4, barY, panelX + panelW + 7, barY + barH, RED);
+        }
+
+        String hint = "Linksklick = Modul öffnen   |   Mausrad = scrollen   |   ESC = schließen";
+        ctx.drawTextWithShadow(textRenderer, Text.literal(hint), width / 2 - textRenderer.getWidth(hint) / 2, height - 14, 0xFF777777);
     }
 
     @Override
     public boolean mouseClicked(Click click, boolean doubled) {
         if (super.mouseClicked(click, doubled)) return true;
-        return paint(click.x(), click.y(), click.button());
-    }
+        if (click.button() != 0) return false;
+        double mx = click.x(), my = click.y();
+        if (my < listTop || my >= listBottom) return false;
 
-    @Override
-    public boolean mouseDragged(Click click, double offsetX, double offsetY) {
-        if (super.mouseDragged(click, offsetX, offsetY)) return true;
-        return paint(click.x(), click.y(), click.button());
-    }
-
-    @Override
-    public void removed() {
-        RedConfig.save();
-    }
-
-    @Override
-    public boolean shouldPause() {
+        List<Module> list = filtered();
+        for (int i = 0; i < list.size(); i++) {
+            int y = listTop + i * (CARD_H + GAP) - (int) scroll;
+            if (inside(mx, my, panelX, y, panelW, CARD_H)) {
+                client.setScreen(list.get(i).opener().get());
+                return true;
+            }
+        }
         return false;
     }
 
-    private class Channel extends SliderWidget {
-        private final String name;
-        private final int shift;
-
-        Channel(int x, int y, int w, String name, int shift) {
-            super(x, y, w, 20, Text.empty(), ((profile().color >> shift) & 255) / 255.0);
-            this.name = name;
-            this.shift = shift;
-            updateMessage();
-        }
-
-        @Override
-        protected void updateMessage() {
-            setMessage(Text.literal(name + ": " + (int) Math.round(value * 255)));
-        }
-
-        @Override
-        protected void applyValue() {
-            int v = (int) Math.round(value * 255);
-            CrosshairProfile p = profile();
-            p.color = (p.color & ~(255 << shift)) | (v << shift);
-        }
+    @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
+        scroll = Math.max(0, Math.min(maxScroll(filtered().size()), scroll - verticalAmount * 20));
+        return true;
     }
 }

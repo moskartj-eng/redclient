@@ -2,8 +2,8 @@ package de.redclient;
 
 import com.mojang.brigadier.Command;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.command.v2.ClientCommandManager;
+import net.fabricmc.fabric.api.client.command.v2.ClientCommandRegistrationCallback;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
@@ -21,16 +21,16 @@ public class RedClient implements ClientModInitializer {
     public void onInitializeClient() {
         RedConfig.load();
 
-        // Vanilla-Crosshair durch unseren ersetzen
+        // Vanilla-Crosshair durch unseres ersetzen
         HudElementRegistry.replaceElement(VanillaHudElements.CROSSHAIR, vanilla -> (ctx, tick) -> {
             if (RedConfig.INSTANCE.customCrosshair) CrosshairRenderer.render(ctx, tick);
             else vanilla.render(ctx, tick);
         });
 
-        // Linke Shift-Taste (im Controls-Menue aenderbar)
+        // Rechte Shift-Taste (im Controls-Menue aenderbar)
         KeyBinding.Category category = KeyBinding.Category.create(Identifier.of("redclient", "main"));
         menuKey = KeyBindingHelper.registerKeyBinding(
-                new KeyBinding("key.redclient.menu", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_LEFT_SHIFT, category));
+                new KeyBinding("key.redclient.hub", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, category));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
             while (menuKey.wasPressed()) {

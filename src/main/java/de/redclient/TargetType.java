@@ -9,22 +9,24 @@ import net.minecraft.util.hit.EntityHitResult;
 import net.minecraft.util.hit.HitResult;
 
 public enum TargetType {
-    NORMAL("Normal"),
-    FRIENDLY("Freundlich"),
-    HOSTILE("Unfreundlich");
+    NORMAL("Normal", "normal"),
+    FRIENDLY("Friendly", "friendly"),
+    ENEMY("Enemy", "enemy");
 
     public final String label;
+    public final String key;
 
-    TargetType(String label) {
+    TargetType(String label, String key) {
         this.label = label;
+        this.key = key;
     }
 
-    /** Spieler und Monster = unfreundlich, andere Mobs (Tiere, Dorfbewohner, ...) = freundlich. */
+    /** Spieler und Monster = Enemy, andere Mobs (Tiere, Dorfbewohner, ...) = Friendly. */
     public static TargetType current(MinecraftClient mc) {
         HitResult hit = mc.crosshairTarget;
         if (hit instanceof EntityHitResult ehr) {
             Entity e = ehr.getEntity();
-            if (e instanceof PlayerEntity || e instanceof Monster) return HOSTILE;
+            if (e instanceof PlayerEntity || e instanceof Monster) return ENEMY;
             if (e instanceof MobEntity) return FRIENDLY;
         }
         return NORMAL;
