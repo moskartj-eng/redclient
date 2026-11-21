@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "redclient",
+  "version": "${version}",
+  "name": "Red Client",
+  "description": "Red Client: eigenes Menue mit frei pixelbarem Crosshair (normal / freundlich / unfreundlich).",
+  "authors": ["Red"],
+  "license": "All-Rights-Reserved",
+  "environment": "client",
+  "entrypoints": {
+    "client": ["de.redclient.RedClient"]
+  },
+  "depends": {
+    "fabricloader": ">=0.18.1",
+    "minecraft": "~1.21.11",
+    "java": ">=21",
+    "fabric-api": "*"
+  }
+}
