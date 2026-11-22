@@ -31,9 +31,9 @@ public class RedMenuScreen extends RedScreen {
     private record Tab(String name, Identifier icon) {}
 
     private static final Tab[] TABS = {
-            new Tab("Crosshair", Identifier.of("redclient", "textures/gui/icon_crosshair.png")),
-            new Tab("Visuals", Identifier.of("redclient", "textures/gui/icon_brush.png")),
-            new Tab("Performance", Identifier.of("redclient", "textures/gui/icon_bolt.png")),
+            new Tab("Mods", Identifier.of("redclient", "textures/gui/icon_bolt.png")),
+            new Tab("Settings", Identifier.of("redclient", "textures/gui/icon_gear.png")),
+            new Tab("HUD", Identifier.of("redclient", "textures/gui/icon_crosshair.png")),
     };
 
     private static final class Card {
@@ -41,6 +41,8 @@ public class RedMenuScreen extends RedScreen {
         final String name, desc;
         final Kind kind;
         Supplier<Screen> opener;
+        Identifier icon;
+        int iconTex = 64; // texture size in px
         BooleanSupplier state;
         Consumer<Boolean> setState;
         DoubleSupplier value;
@@ -59,10 +61,19 @@ public class RedMenuScreen extends RedScreen {
     static {
         Card c = new Card(0, "Crosshair Editor", "Pixels, outline, thickness, position, custom image", Kind.ACTION);
         c.opener = CrosshairScreen::new;
+        c.icon = Identifier.of("redclient", "textures/gui/icon_crosshair.png");
         CARDS.add(c);
 
-        c = new Card(1, "Dropped Item Tweaks", "Change the size of dropped items per item type", Kind.ACTION);
+        c = new Card(0, "Dropped Item Tweaks", "Change the size of dropped items per item type", Kind.ACTION);
         c.opener = DroppedItemsScreen::new;
+        c.icon = Identifier.of("redclient", "textures/gui/icon_apple.png");
+        c.iconTex = 128;
+        CARDS.add(c);
+
+        c = new Card(0, "TeamView", "Mark teammates by name, in a color of your choice", Kind.ACTION);
+        c.opener = TeamViewScreen::new;
+        c.icon = Identifier.of("redclient", "textures/gui/icon_team.png");
+        c.iconTex = 128;
         CARDS.add(c);
     }
 
@@ -271,7 +282,8 @@ public class RedMenuScreen extends RedScreen {
         // Icon-Kachel mit Kategorie-Symbol
         ctx.fill(x + 14, y + 8, x + 42, y + 36, withAlpha(0x0A0A0A, alpha));
         border(ctx, x + 14, y + 8, x + 42, y + 36, withAlpha(RED_DARK & 0xFFFFFF, alpha));
-        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, TABS[c.tab].icon(), x + 18, y + 12, 0f, 0f, 20, 20, 64, 64, 64, 64);
+        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, c.icon != null ? c.icon : TABS[c.tab].icon(), x + 18, y + 12, 0f, 0f, 20, 20,
+                c.iconTex, c.iconTex, c.iconTex, c.iconTex);
 
         ctx.drawTextWithShadow(textRenderer, Text.literal(c.name), x + 52, y + 10, withAlpha(0xFFFFFF, alpha));
         int rightPad = c.kind == Kind.SLIDER ? 130 : 60;

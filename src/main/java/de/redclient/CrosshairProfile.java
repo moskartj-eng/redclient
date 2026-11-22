@@ -25,10 +25,12 @@ public class CrosshairProfile {
     public int outlineColor = 0x000000;
     public float outlineThickness = 1f;
 
+    /** Pixel crosshair visible (can be combined with the custom image). */
+    public boolean pixelEnabled = true;
     public boolean imageEnabled = false;
     public int imageSize = 32;
 
-    /** Verschiebung in GUI-Pixeln (wie Valorant: Crosshair-Position relativ zur Bildschirmmitte). */
+    /** Offset in GUI pixels relative to the screen center. */
     public float offsetX = 0f;
     public float offsetY = 0f;
     public float imageOffsetX = 0f;

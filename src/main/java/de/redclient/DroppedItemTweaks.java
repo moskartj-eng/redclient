@@ -11,8 +11,8 @@ import java.util.Map;
 /** Schneller Lookup: Item -> Groessenfaktor fuer gedroppte Items (wird vom Renderer-Mixin benutzt). */
 public final class DroppedItemTweaks {
     public static final float MIN_SCALE = 0.1f;
-    public static final float MAX_SCALE = 5f;
-    public static final float DEFAULT_SCALE = 1.5f;
+    public static final float MAX_SCALE = 16f;
+    public static final float DEFAULT_SCALE = 3f;
 
     private static Map<Item, Float> cache = new HashMap<>();
 

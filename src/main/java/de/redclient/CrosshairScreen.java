@@ -20,16 +20,11 @@ import java.util.function.Supplier;
 public class CrosshairScreen extends RedScreen {
     private static final int LEFT_X = 14;
     private static final int LEFT_W = 165;
-    private static final int PREVIEW_BG = 0xFF3D4147; // eine einzige, neutrale Farbe
 
     private TargetType tab = TargetType.NORMAL;
     private final List<Row> rows = new ArrayList<>();
     private final SmoothScroll scroll = new SmoothScroll();
     private Row activeSlider;
-    private boolean draggingPreview;
-    private double dragStartMx, dragStartMy;
-    private float dragStartX, dragStartY;
-    private int prevX, prevY, prevW, prevH;
     private volatile String status = "";
 
     private int cell, gridY, listX, listW, listTop, listBottom;
@@ -85,7 +80,7 @@ public class CrosshairScreen extends RedScreen {
         addChannels(() -> p.outlineColor, v -> p.outlineColor = v);
         rows.add(new Presets(v -> p.outlineColor = v));
 
-        rows.add(new Header("Position (like Valorant)"));
+        rows.add(new Header("Position"));
         rows.add(new FSlider("Crosshair X", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
                 () -> p.offsetX, v -> p.offsetX = v));
         rows.add(new FSlider("Crosshair Y", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
@@ -99,7 +94,8 @@ public class CrosshairScreen extends RedScreen {
         }));
 
         rows.add(new Header("Custom image"));
-        rows.add(new Toggle("Use image as crosshair", () -> p.imageEnabled, v -> p.imageEnabled = v));
+        rows.add(new Toggle("Show crosshair", () -> p.pixelEnabled, v -> p.pixelEnabled = v));
+        rows.add(new Toggle("Show image", () -> p.imageEnabled, v -> p.imageEnabled = v));
         rows.add(new Button("Choose image...", this::pickFile));
         rows.add(new Slider("Image size", 4, 128, () -> p.imageSize, v -> p.imageSize = v));
         rows.add(new Info(() -> {
@@ -212,41 +208,43 @@ public class CrosshairScreen extends RedScreen {
         }
         ctx.drawTextWithShadow(textRenderer, Text.literal("Left click paint · Right click erase"), LEFT_X, gridY + gridPx + 4, 0xFF888888);
 
-        // Vorschau: eine einzige Hintergrundfarbe, Crosshair/Bild per Maus verschiebbar
+        // Preview: same square-cell look as the pixel grid above (one cell = one Minecraft pixel)
         int py = gridY + gridPx + 16;
         int ph = height - py - 10;
-        prevX = LEFT_X;
-        prevY = py;
-        prevW = LEFT_W;
-        prevH = Math.max(0, ph);
         if (ph >= 20) {
-            ctx.fill(LEFT_X, py, LEFT_X + LEFT_W, py + ph, PREVIEW_BG);
-            border(ctx, LEFT_X - 1, py - 1, LEFT_X + LEFT_W + 1, py + ph + 1, RED_DARK);
+            ctx.fill(LEFT_X - 1, py - 1, LEFT_X + LEFT_W + 1, py + ph + 1, RED_DARK);
             ctx.enableScissor(LEFT_X, py, LEFT_X + LEFT_W, py + ph);
             drawPreviewGrid(ctx, LEFT_X, py, LEFT_W, ph);
             CrosshairRenderer.drawIn(ctx, tab, p, LEFT_X, py, LEFT_W, ph);
             ctx.disableScissor();
-            ctx.drawTextWithShadow(textRenderer, Text.literal("Preview · drag to move"), LEFT_X + 3, py + 3, 0xFF8A8F95);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("Preview"), LEFT_X + 3, py + 3, 0xFF8A8F95);
         }
 
         // Optionsliste (weiches Scrollen: Inhalt wird um die gleitende Position verschoben)
         double max = maxScroll();
         scroll.update(max);
         double sc = scroll.get();
+        double trail = blurTrail(scroll);
+        int passes = Math.abs(trail) > 0.6 ? 3 : 1;
         ctx.enableScissor(listX, listTop, listX + listW, listBottom);
         var m = ctx.getMatrices();
-        m.pushMatrix();
-        m.translate(0f, (float) -sc);
-        int y = listTop;
-        for (Row r : rows) {
-            if (y + r.h > listTop + sc && y < listBottom + sc) {
-                boolean hov = mouseY >= listTop && mouseY < listBottom
-                        && inside(mouseX, mouseY + sc, listX, y, listW, r.h - 2);
-                r.draw(ctx, textRenderer, listX, y, listW, hov);
+        for (int pass = 0; pass < passes; pass++) {
+            boolean main = pass == passes - 1;
+            double off = main ? 0 : trail * (passes - 1 - pass) / (double) (passes - 1);
+            m.pushMatrix();
+            m.translate(0f, (float) -(sc - off));
+            int y = listTop;
+            for (Row r : rows) {
+                if (y + r.h > listTop + sc - 20 && y < listBottom + sc + 20) {
+                    boolean hov = main && mouseY >= listTop && mouseY < listBottom
+                            && inside(mouseX, mouseY + sc, listX, y, listW, r.h - 2);
+                    if (main) r.draw(ctx, textRenderer, listX, y, listW, hov);
+                    else r.drawGhost(ctx, textRenderer, listX, y, listW, pass == 0 ? 0.16f : 0.28f);
+                }
+                y += r.h;
             }
-            y += r.h;
+            m.popMatrix();
         }
-        m.popMatrix();
         ctx.disableScissor();
 
         if (max > 0) {
@@ -258,7 +256,7 @@ public class CrosshairScreen extends RedScreen {
         }
     }
 
-    /** Pixelraster hinter dem Crosshair: eine Zelle = ein Minecraft-Pixel, jede 5. Linie heller. */
+    /** Square-cell grid behind the preview: one cell = one Minecraft pixel, same checker look as the editor grid. */
     private void drawPreviewGrid(DrawContext ctx, int x, int y, int w, int h) {
         int g = Math.max(1, (int) Math.round(client.getWindow().getScaleFactor()));
         var m = ctx.getMatrices();
@@ -266,12 +264,10 @@ public class CrosshairScreen extends RedScreen {
         m.translate((float) x, (float) y);
         m.scale(1f / g, 1f / g);
         int wd = w * g, hd = h * g;
-        for (int i = 0; i <= w; i++) {
-            ctx.fill(i * g, 0, i * g + 1, hd, i % 5 == 0 ? 0x30FFFFFF : 0x14FFFFFF);
-        }
-        for (int j = 0; j <= h; j++) {
-            ctx.fill(0, j * g, wd, j * g + 1, j % 5 == 0 ? 0x30FFFFFF : 0x14FFFFFF);
-        }
+        ctx.fill(0, 0, wd, hd, 0xFF262626);
+        // dark gaps between the cells
+        for (int i = 0; i <= w; i++) ctx.fill(i * g, 0, i * g + 1, hd, i % 5 == 0 ? 0xFF3A1010 : 0xFF101010);
+        for (int j = 0; j <= h; j++) ctx.fill(0, j * g, wd, j * g + 1, j % 5 == 0 ? 0xFF3A1010 : 0xFF101010);
         m.popMatrix();
     }
 
@@ -315,18 +311,6 @@ public class CrosshairScreen extends RedScreen {
 
         if (paint(mx, my, b)) return true;
 
-        // Vorschau anfassen und verschieben
-        if (b == 0 && prevH >= 20 && inside(mx, my, prevX, prevY, prevW, prevH)) {
-            draggingPreview = true;
-            dragStartMx = mx;
-            dragStartMy = my;
-            boolean img = profile().imageEnabled && CrosshairTextures.hasImage(tab);
-            dragStartX = img ? profile().imageOffsetX : profile().offsetX;
-            dragStartY = img ? profile().imageOffsetY : profile().offsetY;
-            return true;
-        }
-        draggingPreview = false;
-
         if (my >= listTop && my < listBottom && mx >= listX && mx < listX + listW) {
             double cy = my + scroll.get();
             int y = listTop;
@@ -354,21 +338,6 @@ public class CrosshairScreen extends RedScreen {
             fs.setFromMouse(click.x(), listX, listW);
             return true;
         }
-        if (draggingPreview) {
-            CrosshairProfile p = profile();
-            float nx = snap(dragStartX + (float) (click.x() - dragStartMx));
-            float ny = snap(dragStartY + (float) (click.y() - dragStartMy));
-            nx = Math.max(-CrosshairProfile.MAX_OFFSET, Math.min(CrosshairProfile.MAX_OFFSET, nx));
-            ny = Math.max(-CrosshairProfile.MAX_OFFSET, Math.min(CrosshairProfile.MAX_OFFSET, ny));
-            if (p.imageEnabled && CrosshairTextures.hasImage(tab)) {
-                p.imageOffsetX = nx;
-                p.imageOffsetY = ny;
-            } else {
-                p.offsetX = nx;
-                p.offsetY = ny;
-            }
-            return true;
-        }
         return paint(click.x(), click.y(), click.button());
     }
 
@@ -376,10 +345,6 @@ public class CrosshairScreen extends RedScreen {
     public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
         scroll.add(-verticalAmount * 36, maxScroll());
         return true;
-    }
-
-    private static float snap(float v) {
-        return Math.round(v * 4f) / 4f;
     }
 
     @Override
@@ -401,6 +366,11 @@ public class CrosshairScreen extends RedScreen {
 
         boolean click(int x, int y, int w, double mx, double my, int button) {
             return false;
+        }
+
+        /** Faint trailing copy used for the scroll motion blur. */
+        void drawGhost(DrawContext ctx, TextRenderer tr, int x, int y, int w, float alpha) {
+            ctx.fill(x, y, x + w, y + h - 2, withAlpha(0xD01010, alpha * 0.5f));
         }
 
         static void bg(DrawContext ctx, int x, int y, int w, int h, boolean hover) {

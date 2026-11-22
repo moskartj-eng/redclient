@@ -133,13 +133,23 @@ public class DroppedItemsScreen extends RedScreen {
         String info = RedConfig.INSTANCE.itemScales.size() + " item(s) selected · tick a checkbox, then set the size";
         ctx.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(info, panelW)), panelX, 58, 0xFF888888);
 
+        double trail = blurTrail(scroll);
+        int passes = Math.abs(trail) > 0.6 ? 3 : 1;
         ctx.enableScissor(panelX - 4, listTop, panelX + panelW + 4, listBottom);
         var m = ctx.getMatrices();
-        m.pushMatrix();
-        m.translate(0f, (float) -sc);
-        int first = Math.max(0, (int) (sc / (ROW_H + GAP)) - 1);
-        int last = Math.min(shown.size(), (int) ((sc + listBottom - listTop) / (ROW_H + GAP)) + 2);
-        for (int i = first; i < last; i++) {
+        for (int pass = 0; pass < passes; pass++) {
+            boolean main = pass == passes - 1;
+            double off = main ? 0 : trail * (passes - 1 - pass) / (double) (passes - 1);
+            m.pushMatrix();
+            m.translate(0f, (float) -(sc - off));
+            int first = Math.max(0, (int) (sc / (ROW_H + GAP)) - 2);
+            int last = Math.min(shown.size(), (int) ((sc + listBottom - listTop) / (ROW_H + GAP)) + 3);
+            for (int i = first; i < last; i++) {
+                if (!main) {
+                    int gy = listTop + i * (ROW_H + GAP);
+                    ctx.fill(panelX, gy, panelX + panelW, gy + ROW_H, withAlpha(0xD01010, pass == 0 ? 0.08f : 0.14f));
+                    continue;
+                }
             Entry e = shown.get(i);
             int y = listTop + i * (ROW_H + GAP);
             boolean sel = selected(e);
@@ -171,11 +181,12 @@ public class DroppedItemsScreen extends RedScreen {
                 ctx.fill(tx, y + 12, tx + tw, y + 16, 0xFF3A3A3A);
                 ctx.fill(tx, y + 12, fx, y + 16, RED);
                 ctx.fill(fx - 2, y + 8, fx + 2, y + 20, 0xFFFFFFFF);
-                String t = String.format(Locale.ROOT, "%.2fx", v);
+                String t = String.format(Locale.ROOT, "%.1fx", v);
                 ctx.drawTextWithShadow(textRenderer, Text.literal(t), tx + tw + 8, y + 10, 0xFFFFFFFF);
             }
+            }
+            m.popMatrix();
         }
-        m.popMatrix();
         ctx.disableScissor();
 
         if (shown.isEmpty()) {
@@ -201,7 +212,7 @@ public class DroppedItemsScreen extends RedScreen {
     private void setScaleFromMouse(Entry e, double mx) {
         double r = Math.max(0, Math.min(1, (mx - sliderX()) / sliderW()));
         double v = DroppedItemTweaks.MIN_SCALE + r * (DroppedItemTweaks.MAX_SCALE - DroppedItemTweaks.MIN_SCALE);
-        v = Math.round(v / 0.05) * 0.05;
+        v = Math.round(v / 0.1) * 0.1;
         RedConfig.INSTANCE.itemScales.put(e.id, (float) Math.max(DroppedItemTweaks.MIN_SCALE, Math.min(DroppedItemTweaks.MAX_SCALE, v)));
         DroppedItemTweaks.rebuild();
     }

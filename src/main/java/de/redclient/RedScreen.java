@@ -80,6 +80,11 @@ public abstract class RedScreen extends Screen {
         return (al << 24) | (rgb & 0xFFFFFF);
     }
 
+    /** Motion-blur trail length in px for a smooth-scrolling list: follows how far the scroll still has to travel. */
+    protected static double blurTrail(SmoothScroll sc) {
+        return Math.max(-16, Math.min(16, (sc.target() - sc.get()) * 0.22));
+    }
+
     protected static int mix(int c1, int c2, float t) {
         t = Math.max(0f, Math.min(1f, t));
         int a = Math.round(((c1 >>> 24) & 255) * (1 - t) + ((c2 >>> 24) & 255) * t);

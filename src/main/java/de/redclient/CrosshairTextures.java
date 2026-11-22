@@ -29,7 +29,6 @@ public final class CrosshairTextures {
 
     private static final Map<TargetType, Tex> PIXEL = new EnumMap<>(TargetType.class);
     private static final Map<TargetType, Integer> PIXEL_KEY = new EnumMap<>(TargetType.class);
-    private static final Map<TargetType, Tex> IMAGE = new EnumMap<>(TargetType.class);
     private static final Set<TargetType> IMAGE_STALE = EnumSet.allOf(TargetType.class);
 
     private static final float SQ2 = 1.4142135f;
@@ -186,23 +185,92 @@ public final class CrosshairTextures {
         return d;
     }
 
-    // ------------------------------------------------------------------ Eigenes Bild
+    // ------------------------------------------------------------------ Custom image
 
-    public static Tex image(TargetType t) {
-        if (!IMAGE_STALE.contains(t)) return IMAGE.get(t);
-        IMAGE_STALE.remove(t);
-        IMAGE.remove(t);
-        if (!hasImage(t)) return null;
-        try (InputStream in = Files.newInputStream(imagePath(t))) {
-            NativeImage img = NativeImage.read(in);
-            IMAGE.put(t, register("image_" + t.key, img, img.getWidth() / 2.0, img.getHeight() / 2.0));
-        } catch (Exception e) {
-            e.printStackTrace();
+    private record Src(int[] argb, int w, int h) {}
+
+    private static final Map<TargetType, Src> SRC = new EnumMap<>(TargetType.class);
+    private static final Map<TargetType, Tex> IMAGE = new EnumMap<>(TargetType.class);
+
+    /**
+     * Returns the custom image scaled (area-averaged, so it stays sharp) to exactly wDev real screen pixels wide,
+     * so it can be drawn 1:1 without the GPU blurring or aliasing it.
+     */
+    public static Tex image(TargetType t, int wDev) {
+        if (IMAGE_STALE.remove(t)) {
+            SRC.remove(t);
+            IMAGE.remove(t);
+            if (hasImage(t)) {
+                try (InputStream in = Files.newInputStream(imagePath(t)); NativeImage img = NativeImage.read(in)) {
+                    int[] px = new int[img.getWidth() * img.getHeight()];
+                    for (int y = 0; y < img.getHeight(); y++)
+                        for (int x = 0; x < img.getWidth(); x++) px[y * img.getWidth() + x] = img.getColorArgb(x, y);
+                    SRC.put(t, new Src(px, img.getWidth(), img.getHeight()));
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
         }
-        return IMAGE.get(t);
+        Src src = SRC.get(t);
+        if (src == null) return null;
+        Tex cur = IMAGE.get(t);
+        if (cur != null && cur.w() == wDev) return cur;
+
+        int hDev = Math.max(1, Math.round(wDev * src.h() / (float) src.w()));
+        NativeImage out = scale(src, wDev, hDev);
+        Tex tex = register("image_" + t.key, out, wDev / 2.0, hDev / 2.0);
+        IMAGE.put(t, tex);
+        return tex;
     }
 
-    /** Prueft das Bild, kopiert es in den Config-Ordner und markiert es zum Neuladen. */
+    /** Box/bilinear supersampling with premultiplied alpha (no dark fringes on transparent edges). */
+    private static NativeImage scale(Src s, int dw, int dh) {
+        double sx = s.w() / (double) dw, sy = s.h() / (double) dh;
+        int kx = Math.max(1, Math.min(4, (int) Math.ceil(sx)));
+        int ky = Math.max(1, Math.min(4, (int) Math.ceil(sy)));
+        NativeImage out = new NativeImage(NativeImage.Format.RGBA, dw, dh, true);
+        for (int y = 0; y < dh; y++) {
+            for (int x = 0; x < dw; x++) {
+                double a = 0, r = 0, g = 0, b = 0;
+                for (int j = 0; j < ky; j++) {
+                    double v = (y + (j + 0.5) / ky) * sy - 0.5;
+                    for (int i = 0; i < kx; i++) {
+                        double u = (x + (i + 0.5) / kx) * sx - 0.5;
+                        int x0 = (int) Math.floor(u), y0 = (int) Math.floor(v);
+                        double fx = u - x0, fy = v - y0;
+                        for (int q = 0; q < 4; q++) {
+                            int xx = Math.max(0, Math.min(s.w() - 1, x0 + (q & 1)));
+                            int yy = Math.max(0, Math.min(s.h() - 1, y0 + (q >> 1)));
+                            double wgt = ((q & 1) == 0 ? 1 - fx : fx) * ((q >> 1) == 0 ? 1 - fy : fy);
+                            int c = s.argb()[yy * s.w() + xx];
+                            double al = ((c >>> 24) & 255) / 255.0 * wgt;
+                            a += al;
+                            r += ((c >> 16) & 255) * al;
+                            g += ((c >> 8) & 255) * al;
+                            b += (c & 255) * al;
+                        }
+                    }
+                }
+                double n = kx * ky;
+                int argb = 0;
+                if (a > 1e-6) {
+                    int al = (int) Math.round(255 * a / n);
+                    argb = (Math.max(0, Math.min(255, al)) << 24)
+                            | (Math.max(0, Math.min(255, (int) Math.round(r / a))) << 16)
+                            | (Math.max(0, Math.min(255, (int) Math.round(g / a))) << 8)
+                            | Math.max(0, Math.min(255, (int) Math.round(b / a)));
+                }
+                out.setColorArgb(x, y, argb);
+            }
+        }
+        return out;
+    }
+
+    public static boolean imageReady(TargetType t) {
+        return hasImage(t);
+    }
+
+    /** Validates the image, copies it into the config folder and marks it for reloading. */
     public static void importImage(TargetType t, Path src) throws IOException {
         try (InputStream in = Files.newInputStream(src)) {
             NativeImage test = NativeImage.read(in);
