@@ -34,6 +34,7 @@ public class RedClient implements ClientModInitializer {
                 new KeyBinding("key.redclient.hub", InputUtil.Type.KEYSYM, GLFW.GLFW_KEY_RIGHT_SHIFT, category));
 
         ClientTickEvents.END_CLIENT_TICK.register(client -> {
+            StackDropper.tick(client);
             while (menuKey.wasPressed()) {
                 if (client.currentScreen == null && client.player != null) {
                     client.setScreen(new RedMenuScreen());

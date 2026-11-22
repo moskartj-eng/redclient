@@ -5,7 +5,9 @@ import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.nio.file.Files;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.nio.file.Path;
 
@@ -21,6 +23,12 @@ public class RedConfig {
 
     /** Dropped Item Tweaks: Item-ID (z.B. minecraft:diamond) -> Groessenfaktor. Nur gewaehlte Items stehen hier drin. */
     public Map<String, Float> itemScales = new LinkedHashMap<>();
+    /** Dropped Item Tweaks master switches. */
+    public boolean droppedTweaksEnabled = true;
+    public boolean flatItems = false;
+    public boolean stackDropEnabled = true;
+    public List<Hotkey> stackDropKeys = new ArrayList<>();
+
     /** TeamView: lowercase player name -> highlight color (RGB). */
     public Map<String, Integer> teamPlayers = new LinkedHashMap<>();
     public CrosshairProfile normal = CrosshairProfile.plus(0xFFFFFF);
@@ -52,6 +60,7 @@ public class RedConfig {
                     if (c.normal == null) c.normal = CrosshairProfile.plus(0xFFFFFF);
                     if (c.friendly == null) c.friendly = CrosshairProfile.plus(0x55FF55);
                     if (c.enemy == null) c.enemy = CrosshairProfile.plus(0xFF3333);
+                    if (c.stackDropKeys == null) c.stackDropKeys = new ArrayList<>();
                     if (c.teamPlayers == null) c.teamPlayers = new LinkedHashMap<>();
                     if (c.itemScales == null) c.itemScales = new LinkedHashMap<>();
                     INSTANCE = c;

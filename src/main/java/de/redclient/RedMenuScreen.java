@@ -70,7 +70,7 @@ public class RedMenuScreen extends RedScreen {
         c.iconTex = 128;
         CARDS.add(c);
 
-        c = new Card(0, "TeamView", "Mark teammates by name, in a color of your choice", Kind.ACTION);
+        c = new Card(0, "TeamView", "Color the name of your teammates", Kind.ACTION);
         c.opener = TeamViewScreen::new;
         c.icon = Identifier.of("redclient", "textures/gui/icon_team.png");
         c.iconTex = 128;

@@ -1,11 +1,12 @@
 package de.redclient.mixin;
 
 import net.minecraft.client.render.entity.state.ItemEntityRenderState;
+import de.redclient.MixinMarker;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Unique;
 
 @Mixin(ItemEntityRenderState.class)
-public class ItemEntityRenderStateMixin implements ItemScaleAccess {
+public class ItemEntityRenderStateMixin implements ItemScaleAccess, MixinMarker {
     @Unique
     private float redclient$scale = 1f;
 

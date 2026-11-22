@@ -92,10 +92,12 @@ public class TeamViewScreen extends RedScreen {
         button(ctx, addX(), 40, 58, "Add", inside(mouseX, mouseY, addX(), 40, 58, 18));
         button(ctx, resetX(), 40, 62, "Reset", inside(mouseX, mouseY, resetX(), 40, 62, 18));
 
-        String info = message.isEmpty()
-                ? list.size() + " player(s) marked \u00b7 they glow in their color, even through walls"
+        boolean hook = TeamView.hookLoaded();
+        String info = !hook ? "Mixins not loaded - add redclient.mixins.json to fabric.mod.json"
+                : message.isEmpty() ? list.size() + " player(s) marked \u00b7 their name is shown in that color"
                 : message;
-        ctx.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(info, panelW)), panelX, 64, 0xFF888888);
+        ctx.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(info, panelW)), panelX, 64,
+                hook ? 0xFF888888 : 0xFFFF5555);
 
         double trail = blurTrail(scroll);
         int passes = Math.abs(trail) > 0.6 ? 3 : 1;

@@ -8,6 +8,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
 import net.minecraft.registry.Registries;
 import net.minecraft.text.Text;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -46,6 +47,11 @@ public class DroppedItemsScreen extends RedScreen {
 
     private int panelX, panelW, listTop, listBottom;
 
+    private static final int BTN_Y = 72, KEY_Y = 94, MAX_KEYS = 4;
+    /** -2 = not recording, -1 = recording a new hotkey, >= 0 = re-recording that hotkey. */
+    private int recording = -2;
+    private int recMods;
+
     public DroppedItemsScreen() {
         super(Text.literal("Dropped Item Tweaks"));
         if (ALL == null) {
@@ -63,7 +69,7 @@ public class DroppedItemsScreen extends RedScreen {
     protected void init() {
         panelW = Math.min(420, width - 24);
         panelX = (width - panelW) / 2;
-        listTop = 70;
+        listTop = 120;
         listBottom = height - 10;
 
         search = new TextFieldWidget(textRenderer, panelX, 40, panelW, 18, Text.literal("Search"));
@@ -130,8 +136,13 @@ public class DroppedItemsScreen extends RedScreen {
         ctx.drawTextWithShadow(textRenderer, Text.literal("< Menu"), bx + 33 - textRenderer.getWidth("< Menu") / 2, by + 4, 0xFFFFFFFF);
 
         border(ctx, panelX - 1, 39, panelX + panelW + 1, 59, RED);
-        String info = RedConfig.INSTANCE.itemScales.size() + " item(s) selected · tick a checkbox, then set the size";
-        ctx.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(info, panelW)), panelX, 58, 0xFF888888);
+        boolean hook = DroppedItemTweaks.hookLoaded();
+        String info = hook ? RedConfig.INSTANCE.itemScales.size() + " item(s) selected · tick a checkbox, then set the size"
+                : "Mixins not loaded - add redclient.mixins.json to fabric.mod.json";
+        ctx.drawTextWithShadow(textRenderer, Text.literal(textRenderer.trimToWidth(info, panelW)), panelX, 61,
+                hook ? 0xFF888888 : 0xFFFF5555);
+        if (recording != -2) pollRecording();
+        drawControls(ctx, mouseX, mouseY);
 
         double trail = blurTrail(scroll);
         int passes = Math.abs(trail) > 0.6 ? 3 : 1;
@@ -176,7 +187,7 @@ public class DroppedItemsScreen extends RedScreen {
             if (sel) {
                 float v = scaleOf(e);
                 int tx = sliderX(), tw = sliderW();
-                double r = (v - DroppedItemTweaks.MIN_SCALE) / (DroppedItemTweaks.MAX_SCALE - DroppedItemTweaks.MIN_SCALE);
+                double r = Math.sqrt(Math.max(0, (v - DroppedItemTweaks.MIN_SCALE) / (DroppedItemTweaks.MAX_SCALE - DroppedItemTweaks.MIN_SCALE)));
                 int fx = tx + (int) (tw * Math.max(0, Math.min(1, r)));
                 ctx.fill(tx, y + 12, tx + tw, y + 16, 0xFF3A3A3A);
                 ctx.fill(tx, y + 12, fx, y + 16, RED);
@@ -207,12 +218,143 @@ public class DroppedItemsScreen extends RedScreen {
         if (open > 0.01f) ctx.fill(0, 0, width, height, withAlpha(0x000000, open * open));
     }
 
+    // ------------------------------------------------------------------ Controls (switches, reset, stack drop hotkeys)
+
+    private int btnW() {
+        return (panelW - 3 * 4) / 4;
+    }
+
+    private int btnX(int i) {
+        return panelX + i * (btnW() + 4);
+    }
+
+    private void drawBtn(DrawContext ctx, int i, String label, boolean on, boolean hov) {
+        int x = btnX(i), w = btnW();
+        ctx.fill(x, BTN_Y, x + w, BTN_Y + 18, on ? (hov ? RED_BRIGHT : RED) : (hov ? PANEL_HOVER : 0xFF2A0808));
+        border(ctx, x, BTN_Y, x + w, BTN_Y + 18, on ? RED_BRIGHT : RED_DARK);
+        String t = textRenderer.trimToWidth(label, w - 4);
+        ctx.drawTextWithShadow(textRenderer, Text.literal(t), x + w / 2 - textRenderer.getWidth(t) / 2, BTN_Y + 5, 0xFFFFFFFF);
+    }
+
+    /** Chip rectangles {x, width} for each hotkey, plus a trailing "+ Add" chip while there is room. */
+    private List<int[]> chips() {
+        List<int[]> out = new ArrayList<>();
+        int x = panelX + textRenderer.getWidth("Drop stack:") + 10;
+        int n = RedConfig.INSTANCE.stackDropKeys.size();
+        for (int i = 0; i < n; i++) {
+            int w = Math.max(50, textRenderer.getWidth(chipLabel(i)) + 26);
+            out.add(new int[]{x, w});
+            x += w + 4;
+        }
+        if (n < MAX_KEYS) out.add(new int[]{x, 56});
+        return out;
+    }
+
+    private String chipLabel(int i) {
+        int n = RedConfig.INSTANCE.stackDropKeys.size();
+        if (recording == i || (recording == -1 && i == n)) return Hotkey.modsLabel(recMods) + "...";
+        if (i >= n) return "+ Add";
+        return RedConfig.INSTANCE.stackDropKeys.get(i).label();
+    }
+
+    private void drawControls(DrawContext ctx, int mouseX, int mouseY) {
+        RedConfig c = RedConfig.INSTANCE;
+        drawBtn(ctx, 0, "Tweaks: " + (c.droppedTweaksEnabled ? "ON" : "OFF"), c.droppedTweaksEnabled, inside(mouseX, mouseY, btnX(0), BTN_Y, btnW(), 18));
+        drawBtn(ctx, 1, "2D items: " + (c.flatItems ? "ON" : "OFF"), c.flatItems, inside(mouseX, mouseY, btnX(1), BTN_Y, btnW(), 18));
+        drawBtn(ctx, 2, "Stack drop: " + (c.stackDropEnabled ? "ON" : "OFF"), c.stackDropEnabled, inside(mouseX, mouseY, btnX(2), BTN_Y, btnW(), 18));
+        drawBtn(ctx, 3, "Reset all", false, inside(mouseX, mouseY, btnX(3), BTN_Y, btnW(), 18));
+
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Drop stack:"), panelX, KEY_Y + 5, 0xFFAAAAAA);
+        List<int[]> chips = chips();
+        int n = c.stackDropKeys.size();
+        for (int i = 0; i < chips.size(); i++) {
+            int x = chips.get(i)[0], w = chips.get(i)[1];
+            boolean rec = recording == i || (recording == -1 && i == n);
+            boolean hov = inside(mouseX, mouseY, x, KEY_Y, w, 18);
+            ctx.fill(x, KEY_Y, x + w, KEY_Y + 18, rec ? RED : (hov ? PANEL_HOVER : PANEL));
+            border(ctx, x, KEY_Y, x + w, KEY_Y + 18, rec ? RED_BRIGHT : RED_DARK);
+            String t = chipLabel(i);
+            int tw = textRenderer.getWidth(t);
+            boolean hasX = i < n;
+            int cx = hasX ? x + (w - 12) / 2 : x + w / 2;
+            ctx.drawTextWithShadow(textRenderer, Text.literal(t), cx - tw / 2, KEY_Y + 5, 0xFFFFFFFF);
+            if (hasX) {
+                boolean xh = inside(mouseX, mouseY, x + w - 14, KEY_Y, 14, 18);
+                ctx.drawTextWithShadow(textRenderer, Text.literal("x"), x + w - 10, KEY_Y + 5, xh ? 0xFFFFFFFF : 0xFFD01010);
+            }
+        }
+        if (recording != -2) {
+            ctx.drawTextWithShadow(textRenderer, Text.literal("Press your key combination (Esc = cancel)"), panelX, KEY_Y + 22, 0xFF888888);
+        }
+    }
+
+    /** Polls the keyboard while a hotkey is being recorded: the first non-modifier key held completes it. */
+    private void pollRecording() {
+        long h = client.getWindow().getHandle();
+        recMods = Hotkey.currentMods(h);
+        for (int k = GLFW.GLFW_KEY_SPACE; k <= GLFW.GLFW_KEY_LAST; k++) {
+            if (k == GLFW.GLFW_KEY_ESCAPE || (k >= GLFW.GLFW_KEY_LEFT_SHIFT && k <= GLFW.GLFW_KEY_RIGHT_SUPER)) continue;
+            if (GLFW.glfwGetKey(h, k) != GLFW.GLFW_PRESS) continue;
+            Hotkey hk = new Hotkey(k, recMods);
+            List<Hotkey> keys = RedConfig.INSTANCE.stackDropKeys;
+            if (!keys.contains(hk)) {
+                if (recording >= 0 && recording < keys.size()) keys.set(recording, hk);
+                else if (keys.size() < MAX_KEYS) keys.add(hk);
+                RedConfig.save();
+            }
+            recording = -2;
+            return;
+        }
+    }
+
+    private boolean clickControls(double mx, double my) {
+        RedConfig c = RedConfig.INSTANCE;
+        for (int i = 0; i < 4; i++) {
+            if (!inside(mx, my, btnX(i), BTN_Y, btnW(), 18)) continue;
+            recording = -2;
+            switch (i) {
+                case 0 -> c.droppedTweaksEnabled = !c.droppedTweaksEnabled;
+                case 1 -> c.flatItems = !c.flatItems;
+                case 2 -> c.stackDropEnabled = !c.stackDropEnabled;
+                default -> {
+                    c.itemScales.clear();
+                    c.droppedTweaksEnabled = true;
+                    c.flatItems = false;
+                    c.stackDropEnabled = true;
+                    c.stackDropKeys.clear();
+                    DroppedItemTweaks.rebuild();
+                    refilter();
+                }
+            }
+            RedConfig.save();
+            return true;
+        }
+        List<int[]> chips = chips();
+        int n = c.stackDropKeys.size();
+        for (int i = 0; i < chips.size(); i++) {
+            int x = chips.get(i)[0], w = chips.get(i)[1];
+            if (!inside(mx, my, x, KEY_Y, w, 18)) continue;
+            if (i < n && mx >= x + w - 14) {
+                c.stackDropKeys.remove(i);
+                recording = -2;
+                RedConfig.save();
+            } else {
+                recording = i < n ? i : -1;
+                recMods = 0;
+                setFocused(null); // so typed keys don't go into the search field
+            }
+            return true;
+        }
+        return false;
+    }
+
     // ------------------------------------------------------------------ Input
 
     private void setScaleFromMouse(Entry e, double mx) {
         double r = Math.max(0, Math.min(1, (mx - sliderX()) / sliderW()));
-        double v = DroppedItemTweaks.MIN_SCALE + r * (DroppedItemTweaks.MAX_SCALE - DroppedItemTweaks.MIN_SCALE);
-        v = Math.round(v / 0.1) * 0.1;
+        double v = DroppedItemTweaks.MIN_SCALE + r * r * (DroppedItemTweaks.MAX_SCALE - DroppedItemTweaks.MIN_SCALE);
+        double step = v < 5 ? 0.1 : 0.5;
+        v = Math.round(v / step) * step;
         RedConfig.INSTANCE.itemScales.put(e.id, (float) Math.max(DroppedItemTweaks.MIN_SCALE, Math.min(DroppedItemTweaks.MAX_SCALE, v)));
         DroppedItemTweaks.rebuild();
     }
@@ -228,6 +370,8 @@ public class DroppedItemsScreen extends RedScreen {
             client.setScreen(new RedMenuScreen());
             return true;
         }
+        if (clickControls(mx, my)) return true;
+        recording = -2;
         if (my < listTop || my >= listBottom) return false;
 
         double cy = my + scroll.get();

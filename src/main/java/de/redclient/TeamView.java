@@ -11,6 +11,14 @@ public final class TeamView {
 
     private TeamView() {}
 
+    private static Boolean hook;
+
+    /** True if our name mixin was actually applied to the game's Entity class. */
+    public static boolean hookLoaded() {
+        if (hook == null) hook = MixinMarker.class.isAssignableFrom(Entity.class);
+        return hook;
+    }
+
     /** Returns the highlight color (RGB) if this entity is a marked player, otherwise null. */
     public static Integer colorOf(Entity e) {
         if (RedConfig.INSTANCE.teamPlayers.isEmpty() || !(e instanceof AbstractClientPlayerEntity)) return null;
