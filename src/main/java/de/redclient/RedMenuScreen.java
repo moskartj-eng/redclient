@@ -32,7 +32,6 @@ public class RedMenuScreen extends RedScreen {
 
     private static final Tab[] TABS = {
             new Tab("Crosshair", Identifier.of("redclient", "textures/gui/icon_crosshair.png")),
-            new Tab("Settings", Identifier.of("redclient", "textures/gui/icon_gear.png")),
             new Tab("Visuals", Identifier.of("redclient", "textures/gui/icon_brush.png")),
             new Tab("Performance", Identifier.of("redclient", "textures/gui/icon_bolt.png")),
     };
@@ -58,26 +57,12 @@ public class RedMenuScreen extends RedScreen {
     private static final List<Card> CARDS = new ArrayList<>();
 
     static {
-        Card c = new Card(0, "Crosshair Editor", "Pixel, Outline, Dicke, Position, eigenes Bild", Kind.ACTION);
+        Card c = new Card(0, "Crosshair Editor", "Pixels, outline, thickness, position, custom image", Kind.ACTION);
         c.opener = CrosshairScreen::new;
         CARDS.add(c);
 
-        c = new Card(0, "Red Crosshair aktiv", "Aus = Vanilla-Crosshair", Kind.TOGGLE);
-        c.state = () -> RedConfig.INSTANCE.customCrosshair;
-        c.setState = v -> RedConfig.INSTANCE.customCrosshair = v;
-        CARDS.add(c);
-
-        c = new Card(1, "Hintergrundmusik", "Leise Musik, solange das Menü offen ist", Kind.TOGGLE);
-        c.state = () -> RedConfig.INSTANCE.musicEnabled;
-        c.setState = v -> {
-            RedConfig.INSTANCE.musicEnabled = v;
-            MenuMusic.applySettings();
-        };
-        CARDS.add(c);
-
-        c = new Card(1, "Musik-Lautstärke", "Zusätzlich zum Musik-Regler der Spieloptionen", Kind.SLIDER);
-        c.value = () -> RedConfig.INSTANCE.musicVolume;
-        c.setValue = v -> RedConfig.INSTANCE.musicVolume = (float) v;
+        c = new Card(1, "Dropped Item Tweaks", "Change the size of dropped items per item type", Kind.ACTION);
+        c.opener = DroppedItemsScreen::new;
         CARDS.add(c);
     }
 
@@ -100,7 +85,7 @@ public class RedMenuScreen extends RedScreen {
     private int panelX, panelW, logoX, logoY, logoW, logoH, searchY, tilesY, tileH, tileW, listTop, listBottom;
 
     public RedMenuScreen() {
-        super(Text.literal("Menü"));
+        super(Text.literal("Menu"));
     }
 
     @Override
@@ -121,12 +106,12 @@ public class RedMenuScreen extends RedScreen {
         tilesY = searchY + 18 + 8;
         tileH = height < 300 ? 40 : 52;
         int gap = 6;
-        tileW = (panelW - 3 * gap) / 4;
+        tileW = (panelW - (TABS.length - 1) * gap) / TABS.length;
         listTop = tilesY + tileH + 12;
-        listBottom = height - 22;
+        listBottom = height - 10;
 
-        search = new TextFieldWidget(textRenderer, panelX, searchY, panelW, 18, Text.literal("Suche"));
-        search.setPlaceholder(Text.literal("Suche..."));
+        search = new TextFieldWidget(textRenderer, panelX, searchY, panelW, 18, Text.literal("Search"));
+        search.setPlaceholder(Text.literal("Search..."));
         search.setText(lastQuery);
         search.setChangedListener(s -> {
             lastQuery = s;
@@ -182,11 +167,9 @@ public class RedMenuScreen extends RedScreen {
 
         super.render(ctx, mouseX, mouseY, delta); // Hintergrund + Suchfeld
 
-        // ---- Logo (atmet ganz leicht)
-        float breathe = 1f + 0.012f * (float) Math.sin(nowN / 1_000_000_000.0 * 1.6);
-        int lw = Math.round(logoW * breathe), lh = Math.round(logoH * breathe);
-        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, LOGO, logoX - (lw - logoW) / 2, logoY - (lh - logoH) / 2,
-                0f, 0f, lw, lh, LOGO_W, LOGO_H, LOGO_W, LOGO_H);
+        // ---- Logo (fixed, no movement)
+        ctx.drawTexture(RenderPipelines.GUI_TEXTURED, LOGO, logoX, logoY,
+                0f, 0f, logoW, logoH, LOGO_W, LOGO_H, LOGO_W, LOGO_H);
 
         border(ctx, panelX - 1, searchY - 1, panelX + panelW + 1, searchY + 19, RED);
 
@@ -223,28 +206,43 @@ public class RedMenuScreen extends RedScreen {
                     tilesY + tileH - 12, lc);
         }
 
-        // ---- Modul-Liste: weich scrollend
+        // ---- Module list: smooth scrolling with a light motion blur (faint trailing copies while moving)
+        double vel = scroll.target() - sc;                       // how far the scroll still has to travel
+        double trail = Math.max(-16, Math.min(16, vel * 0.22));  // trail length in px, follows the motion
+        boolean blur = Math.abs(trail) > 0.6;
         ctx.enableScissor(panelX - 4, listTop, panelX + panelW + 4, listBottom);
         var m = ctx.getMatrices();
-        m.pushMatrix();
-        m.translate(0f, (float) -sc);
-        for (int i = 0; i < list.size(); i++) {
-            Card card = list.get(i);
-            float p = ease((now - tabChangedAt - i * 45L) / 260f);
-            int y = listTop + i * (CARD_H + GAP) + Math.round((1f - p) * 12f);
-            if (y + CARD_H < listTop + sc || y > listBottom + sc) continue;
+        int passes = blur ? 3 : 1;
+        for (int pass = 0; pass < passes; pass++) {
+            boolean main = pass == passes - 1;
+            // ghosts first (furthest behind), the real list last and fully opaque
+            double off = main ? 0 : trail * (passes - 1 - pass) / (double) (passes - 1);
+            float ghostAlpha = main ? 1f : (pass == 0 ? 0.16f : 0.28f);
+            m.pushMatrix();
+            m.translate(0f, (float) -(sc - off));
+            for (int i = 0; i < list.size(); i++) {
+                Card card = list.get(i);
+                float p = ease((now - tabChangedAt - i * 45L) / 260f);
+                int y = listTop + i * (CARD_H + GAP) + Math.round((1f - p) * 12f);
+                if (y + CARD_H < listTop + sc - 20 || y > listBottom + sc + 20) continue;
 
-            boolean hov = mouseY >= listTop && mouseY < listBottom
-                    && inside(mouseX, mouseY + sc, panelX, y, panelW, CARD_H);
-            float h = approach(cardHover.getOrDefault(card.name, 0f), hov, dt);
-            cardHover.put(card.name, h);
-            drawCard(ctx, card, y, h, p);
+                float h;
+                if (main) {
+                    boolean hov = mouseY >= listTop && mouseY < listBottom
+                            && inside(mouseX, mouseY + sc, panelX, y, panelW, CARD_H);
+                    h = approach(cardHover.getOrDefault(card.name, 0f), hov, dt);
+                    cardHover.put(card.name, h);
+                } else {
+                    h = cardHover.getOrDefault(card.name, 0f);
+                }
+                drawCard(ctx, card, y, h, p * ghostAlpha);
+            }
+            m.popMatrix();
         }
-        m.popMatrix();
         ctx.disableScissor();
 
         if (list.isEmpty()) {
-            String s = lastQuery.isBlank() ? "Kommt bald ..." : "Keine Treffer";
+            String s = lastQuery.isBlank() ? "Coming soon ..." : "No results";
             ctx.drawTextWithShadow(textRenderer, Text.literal(s),
                     width / 2 - textRenderer.getWidth(s) / 2, listTop + 20, 0xFF888888);
         }
@@ -258,11 +256,6 @@ public class RedMenuScreen extends RedScreen {
             ctx.fill(bx, listTop, bx + 3, listBottom, 0xFF1A1A1A);
             ctx.fill(bx, barY, bx + 3, barY + barH, RED);
         }
-
-        // ---- Fusszeile
-        ctx.fillGradient(0, height - 22, width, height, 0x00000000, 0xE0050505);
-        String hint = "Mausrad = scrollen   |   Klick = öffnen   |   ESC = schließen";
-        ctx.drawTextWithShadow(textRenderer, Text.literal(hint), width / 2 - textRenderer.getWidth(hint) / 2, height - 13, 0xFF777777);
 
         // ---- Einblenden beim Oeffnen
         float open = Math.max(0f, 1f - (now - openedAt) / 320f);

@@ -20,6 +20,7 @@ public class RedClient implements ClientModInitializer {
     @Override
     public void onInitializeClient() {
         RedConfig.load();
+        DroppedItemTweaks.rebuild();
 
         // Vanilla-Crosshair durch unseres ersetzen
         HudElementRegistry.replaceElement(VanillaHudElements.CROSSHAIR, vanilla -> (ctx, tick) -> {

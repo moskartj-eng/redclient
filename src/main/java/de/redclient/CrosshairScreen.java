@@ -59,58 +59,64 @@ public class CrosshairScreen extends RedScreen {
         rows.clear();
         CrosshairProfile p = profile();
 
-        rows.add(new Toggle("Red Crosshair aktiv (aus = Vanilla)",
+        rows.add(new Toggle("Red Crosshair enabled (off = vanilla)",
                 () -> RedConfig.INSTANCE.customCrosshair, v -> RedConfig.INSTANCE.customCrosshair = v));
 
-        rows.add(new Header("Farbe & Blending"));
+        rows.add(new Button("Reset everything to default", () -> {
+            RedConfig.INSTANCE.resetProfile(tab);
+            status = "";
+            buildRows();
+        }));
+
+        rows.add(new Header("Color & Blending"));
         addChannels(() -> p.color, v -> p.color = v);
         rows.add(new Presets(v -> p.color = v));
-        rows.add(new Toggle("Vanilla-Blending (nur ohne Outline)", () -> p.vanillaBlending, v -> p.vanillaBlending = v));
+        rows.add(new Toggle("Vanilla blending (only without outline)", () -> p.vanillaBlending, v -> p.vanillaBlending = v));
 
-        rows.add(new Header("Dicke"));
-        rows.add(new Toggle("Dicke ändern (aus = Vanilla-Breite)", () -> p.thicknessEnabled, v -> p.thicknessEnabled = v));
-        rows.add(new FSlider("Dicke", CrosshairProfile.MIN_THICKNESS, CrosshairProfile.MAX_THICKNESS, 0.05f, 2.2,
+        rows.add(new Header("Thickness"));
+        rows.add(new Toggle("Custom thickness (off = vanilla width)", () -> p.thicknessEnabled, v -> p.thicknessEnabled = v));
+        rows.add(new FSlider("Thickness", CrosshairProfile.MIN_THICKNESS, CrosshairProfile.MAX_THICKNESS, 0.05f, 2.2,
                 () -> p.thickness, v -> p.thickness = v));
 
         rows.add(new Header("Outline"));
         rows.add(new Toggle("Outline", () -> p.outlineEnabled, v -> p.outlineEnabled = v));
-        rows.add(new FSlider("Outline-Dicke", CrosshairProfile.MIN_OUTLINE, CrosshairProfile.MAX_OUTLINE, 0.05f, 2.2,
+        rows.add(new FSlider("Outline thickness", CrosshairProfile.MIN_OUTLINE, CrosshairProfile.MAX_OUTLINE, 0.05f, 2.2,
                 () -> p.outlineThickness, v -> p.outlineThickness = v));
         addChannels(() -> p.outlineColor, v -> p.outlineColor = v);
         rows.add(new Presets(v -> p.outlineColor = v));
 
-        rows.add(new Header("Position (wie Valorant)"));
+        rows.add(new Header("Position (like Valorant)"));
         rows.add(new FSlider("Crosshair X", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
                 () -> p.offsetX, v -> p.offsetX = v));
         rows.add(new FSlider("Crosshair Y", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
                 () -> p.offsetY, v -> p.offsetY = v));
-        rows.add(new FSlider("Bild X", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
+        rows.add(new FSlider("Image X", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
                 () -> p.imageOffsetX, v -> p.imageOffsetX = v));
-        rows.add(new FSlider("Bild Y", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
+        rows.add(new FSlider("Image Y", -CrosshairProfile.MAX_OFFSET, CrosshairProfile.MAX_OFFSET, 0.25f, 1.0,
                 () -> p.imageOffsetY, v -> p.imageOffsetY = v));
-        rows.add(new Button("Position zurücksetzen", () -> {
+        rows.add(new Button("Reset position", () -> {
             p.offsetX = p.offsetY = p.imageOffsetX = p.imageOffsetY = 0f;
         }));
 
-        rows.add(new Header("Eigenes Bild"));
-        rows.add(new Toggle("Bild als Crosshair verwenden", () -> p.imageEnabled, v -> p.imageEnabled = v));
-        rows.add(new Button("Bild auswählen...", this::pickFile));
-        rows.add(new Slider("Bildgröße", 4, 128, () -> p.imageSize, v -> p.imageSize = v));
+        rows.add(new Header("Custom image"));
+        rows.add(new Toggle("Use image as crosshair", () -> p.imageEnabled, v -> p.imageEnabled = v));
+        rows.add(new Button("Choose image...", this::pickFile));
+        rows.add(new Slider("Image size", 4, 128, () -> p.imageSize, v -> p.imageSize = v));
         rows.add(new Info(() -> {
             String s = status;
             if (!s.isEmpty()) return s;
             return CrosshairTextures.hasImage(tab)
-                    ? "Bild vorhanden. Neues Bild: Button oder Datei ins Fenster ziehen."
-                    : "Kein Bild. Button klicken oder Datei ins Fenster ziehen.";
+                    ? "Image loaded. New image: use the button or drop a file into the window."
+                    : "No image. Click the button or drop a file into the window.";
         }));
 
-        rows.add(new Header("Pixel-Raster"));
-        rows.add(new Button("Alles leeren", p::clearPixels));
-        rows.add(new Button("Standard-Kreuz", p::resetPixels));
+        rows.add(new Header("Pixel grid"));
+        rows.add(new Button("Clear all", p::clearPixels));
+        rows.add(new Button("Default cross", p::resetPixels));
     }
 
     private void addChannels(IntSupplier get, IntConsumer set) {
-        String[] names = {"Rot", "Grün", "Blau"};
+        String[] names = {"Red", "Green", "Blue"};
         int[] shifts = {16, 8, 0};
         for (int i = 0; i < 3; i++) {
             int sh = shifts[i];
@@ -123,17 +129,17 @@ public class CrosshairScreen extends RedScreen {
     // ------------------------------------------------------------------ Bild-Import
 
     private void pickFile() {
-        status = "Datei-Dialog geöffnet...";
+        status = "File dialog opened...";
         Thread th = new Thread(() -> {
             String path = null;
             try {
                 Class<?> c = Class.forName("org.lwjgl.util.tinyfd.TinyFileDialogs");
                 Method m = c.getMethod("tinyfd_openFileDialog",
                         CharSequence.class, CharSequence.class, PointerBuffer.class, CharSequence.class, boolean.class);
-                path = (String) m.invoke(null, "Crosshair-Bild wählen", "", null, "Bilder", false);
+                path = (String) m.invoke(null, "Choose crosshair image", "", null, "Images", false);
                 if (path == null) status = "";
             } catch (Throwable t) {
-                status = "Dialog nicht verfügbar - Bild einfach ins Fenster ziehen.";
+                status = "Dialog not available - just drop the image into the window.";
             }
             if (path != null) {
                 Path file = Path.of(path);
@@ -148,9 +154,9 @@ public class CrosshairScreen extends RedScreen {
         try {
             CrosshairTextures.importImage(tab, file);
             profile().imageEnabled = true;
-            status = "Bild geladen: " + file.getFileName();
+            status = "Image loaded: " + file.getFileName();
         } catch (Exception e) {
-            status = "Bild konnte nicht gelesen werden (am besten PNG).";
+            status = "Could not read image (PNG works best).";
         }
     }
 
@@ -177,7 +183,7 @@ public class CrosshairScreen extends RedScreen {
         boolean bh = inside(mouseX, mouseY, bx, by, 66, 16);
         ctx.fill(bx, by, bx + 66, by + 16, bh ? RED : 0xFF2A0808);
         border(ctx, bx, by, bx + 66, by + 16, RED);
-        ctx.drawTextWithShadow(textRenderer, Text.literal("< Menü"), bx + 33 - textRenderer.getWidth("< Menü") / 2, by + 4, 0xFFFFFFFF);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("< Menu"), bx + 33 - textRenderer.getWidth("< Menu") / 2, by + 4, 0xFFFFFFFF);
 
         // Tabs
         int tw = LEFT_W / 3;
@@ -204,7 +210,7 @@ public class CrosshairScreen extends RedScreen {
                 if (p.get(x, y)) ctx.fill(cx, cy, cx + cell - 1, cy + cell - 1, 0xFF000000 | p.color);
             }
         }
-        ctx.drawTextWithShadow(textRenderer, Text.literal("Links malen · Rechts löschen"), LEFT_X, gridY + gridPx + 4, 0xFF888888);
+        ctx.drawTextWithShadow(textRenderer, Text.literal("Left click paint · Right click erase"), LEFT_X, gridY + gridPx + 4, 0xFF888888);
 
         // Vorschau: eine einzige Hintergrundfarbe, Crosshair/Bild per Maus verschiebbar
         int py = gridY + gridPx + 16;
@@ -217,9 +223,10 @@ public class CrosshairScreen extends RedScreen {
             ctx.fill(LEFT_X, py, LEFT_X + LEFT_W, py + ph, PREVIEW_BG);
             border(ctx, LEFT_X - 1, py - 1, LEFT_X + LEFT_W + 1, py + ph + 1, RED_DARK);
             ctx.enableScissor(LEFT_X, py, LEFT_X + LEFT_W, py + ph);
+            drawPreviewGrid(ctx, LEFT_X, py, LEFT_W, ph);
             CrosshairRenderer.drawIn(ctx, tab, p, LEFT_X, py, LEFT_W, ph);
             ctx.disableScissor();
-            ctx.drawTextWithShadow(textRenderer, Text.literal("Vorschau · ziehen = verschieben"), LEFT_X + 3, py + 3, 0xFF8A8F95);
+            ctx.drawTextWithShadow(textRenderer, Text.literal("Preview · drag to move"), LEFT_X + 3, py + 3, 0xFF8A8F95);
         }
 
         // Optionsliste (weiches Scrollen: Inhalt wird um die gleitende Position verschoben)
@@ -249,6 +256,23 @@ public class CrosshairScreen extends RedScreen {
             ctx.fill(listX + listW + 5, listTop, listX + listW + 8, listBottom, 0xFF1A1A1A);
             ctx.fill(listX + listW + 5, barY, listX + listW + 8, barY + barH, RED);
         }
+    }
+
+    /** Pixelraster hinter dem Crosshair: eine Zelle = ein Minecraft-Pixel, jede 5. Linie heller. */
+    private void drawPreviewGrid(DrawContext ctx, int x, int y, int w, int h) {
+        int g = Math.max(1, (int) Math.round(client.getWindow().getScaleFactor()));
+        var m = ctx.getMatrices();
+        m.pushMatrix();
+        m.translate((float) x, (float) y);
+        m.scale(1f / g, 1f / g);
+        int wd = w * g, hd = h * g;
+        for (int i = 0; i <= w; i++) {
+            ctx.fill(i * g, 0, i * g + 1, hd, i % 5 == 0 ? 0x30FFFFFF : 0x14FFFFFF);
+        }
+        for (int j = 0; j <= h; j++) {
+            ctx.fill(0, j * g, wd, j * g + 1, j % 5 == 0 ? 0x30FFFFFF : 0x14FFFFFF);
+        }
+        m.popMatrix();
     }
 
     // ------------------------------------------------------------------ Maus
